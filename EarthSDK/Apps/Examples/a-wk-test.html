@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+    <script src="https://cdn.bootcdn.net/ajax/libs/echarts/4.8.0/echarts.min.js"></script>
+    <script src="../../XbsjEarth/XbsjEarth.js"></script>
+    <script src="./scripts/vue.min.js"></script>
+    <style>
+        html,
+        body {
+            width: 100%;
+            height: 100%;
+            margin: 0px;
+            padding: 0px;
+        }
+
+        .car span{
+            display: block;
+            margin-top: 10px;
+        }
+
+        .defultbtn {
+            display: inline-block;
+            text-align: center;
+            min-width: 60px;
+            height: 38px;
+            padding: 0 10px;
+            line-height: 38px;
+            border-radius: 100px;
+            border: 1px solid #C9C9C9;
+            background-color: #FFF;
+            color: #555;
+            cursor: pointer;
+        }
+
+        .defultbtn:hover {
+            background-color: #b3daf8;
+        }
+
+        .btnon {
+            background-color: #1E9FFF;
+            color: #fff;
+            border: 1px solid #1E9FFF;
+        }
+
+        input {
+            width: 222px;
+        }
+
+        .colorbox {
+            width: 50px;
+        }
+    </style>
+</head>
+<body>
+    <div id="vueApp" style="width: 100%; height: 100%; background: grey; position: relative;">
+        <earth-comp></earth-comp>
+    </div>
+    <script>
+        var EarthComp = {
+            template: `
+                <div style="width: 100%; height: 100%">
+                    <div ref="earthContainer" style="width: 100%; height: 100%">
+                    </div>
+                    <div class="car" style="position: absolute; left: 18px; top: 18px; color: white; background: rgba(0, 0, 0, 0.6); padding: 20px; border-radius: 25px;min-width:200px; font-size:24px; font-family: 宋体;">
+                        <div class="defultbtn" :class="{'btnon':positionEditing}"  @click="positionEditing = !positionEditing">平移</div>
+                        <div class="defultbtn" style="margin-left:20px;" :class="{'btnon':rotationEditing}"  @click="rotationEditing = !rotationEditing">旋转</div><br/>
+                        <span>经度：{{xbsjPosition[0]/180*Math.PI}}</span> 
+                        <span>纬度：{{xbsjPosition[1]/180*Math.PI}}</span> 
+                        <span>高度：{{xbsjPosition[2]}}m</span> 
+                        <span>偏航角：{{xbsjRotation[0]}}°</span> 
+                        <span>俯仰角：{{xbsjRotation[1]}}°</span> 
+                        <span>翻滚角：{{xbsjRotation[2]}}°</span> 
+                    </div>
+                    <div class="single" style="position: absolute; left: 1018px; top: 18px; color: white; background: rgba(0, 0, 0, 0.6); padding: 20px; border-radius: 25px;min-width:200px; font-size:24px; font-family: 宋体;">
+                        <div class="defultbtn" :class="{'btnon':creating}" @click="creating = !creating">创建</div>
+                        <div class="defultbtn" style="margin-left:20px;" :class="{'btnon':editing}"  @click="editing = !editing">编辑</div>
+                        <div class="defultbtn" style="margin-left:20px;" :class="{'btnon':extrudedHeightEditing}"  @click="extrudedHeightEditing = !extrudedHeightEditing">拉伸编辑</div><br/>
+                        <span @click="show = !show" style="cursor: pointer;"><input type="checkbox" style="width: 14px; cursor: pointer;" v-model="show">单体化显隐</span><br/>
+                        <span @click="showHelper = !showHelper" style="cursor: pointer;"><input type="checkbox" style="width: 14px; cursor: pointer;" v-model="showHelper">线框显隐</span><br/>
+                        <span>拉伸：</span><input v-model.number="extrudedHeight"/><br/>
+                        <span>颜色：</span><input class="colorbox" type="color" value="#ffff00" @input=colorchange(event)><br/>
+                        <span>填充不透明度: {{ colors[3] }}</span><br/>
+                        <span><input type="range" min="0" max="1" step="0.1" v-model.number="colors[3]"></span><br/>
+                    </div>
+                    <div id="main" style="width: 300px;height:200px;position: absolute;left:0px;top: 500px; background: rgba(255,255,255,1)"></div>
+                </div>
+            `,
+            data() {
+                return {
+                    _earth: undefined, // 注意：Earth和Cesium的相关变量放在vue中，必须使用下划线作为前缀！
+                    creating: false,
+                    editing: false,
+                    extrudedHeightEditing: false,
+                    show: true,
+                    showHelper: false,
+                    height: 0,
+                    outlineWidth: 0,
+                    extrudedHeight: 0,
+                    depthTest: false,
+                    colors: [0, 0, 0, 0],
+
+                    positionEditing: false,
+                    rotationEditing: false,
+                    xbsjPosition: [0, 0, 0],
+                    xbsjRotation: [0, 0, 0],
+                    _earth: undefined, // 注意：Earth和Cesium的相关变量放在vue中，必须使用下划线作为前缀！
+                    _model: undefined,
+                }
+            },
+            watch: {
+                extrudedHeight(val) {
+                    if (typeof val == "string") {
+                        classificationpolygon.extrudedHeight = null;
+                    }
+                }
+            },
+            methods: {
+                colorchange(event) {
+                    var color = event.target.value;
+                    classificationpolygon.color = color.xeColor;
+                }
+            },
+            mounted() {
+                var myChart = echarts.init(document.getElementById('main'));
+
+                // 指定图表的配置项和数据
+                var option = {
+                    title: {
+                        text: 'ECharts 入门示例'
+                    },
+                    tooltip: {},
+                    legend: {
+                        data:['销量']
+                    },
+                    xAxis: {
+                        data: ["衬衫","羊毛衫","雪纺衫","裤子","高跟鞋","袜子"]
+                    },
+                    yAxis: {},
+                    series: [{
+                        name: '销量',
+                        type: 'bar',
+                        data: [5, 20, 36, 10, 10, 20]
+                    }]
+                };
+
+                // 使用刚指定的配置项和数据显示图表。
+                myChart.setOption(option);
+
+                var earth = new XE.Earth(this.$refs.earthContainer);
+                earth.interaction.picking.enabled = true; // 开启拾取操作
+                earth.sceneTree.root = {
+                    "children": [
+                        {
+                            "czmObject": {
+                                "xbsjType": "Imagery",
+                                "enabled": true,
+                                "name": "谷歌影像",
+                                "show": true,
+                                "xbsjImageryProvider": {
+                                    "XbsjImageryProvider": {
+                                    "url": "//www.google.cn/maps/vt?lyrs=s&x={x}&y={y}&z={z}",
+                                    }
+                                }
+                            }
+                        },
+                        {
+                            "czmObject": {
+                                "xbsjType": "Terrain",
+                                "name": "中国14级（测试）",
+                                "xbsjTerrainProvider": {
+                                    "type": "XbsjCesiumTerrainProvider",
+                                    "XbsjCesiumTerrainProvider": {
+                                        "url": "//lab.earthsdk.com/terrain/577fd5b0ac1f11e99dbd8fd044883638",
+                                        "requestVertexNormals": true,
+                                        "requestWaterMask": true
+                                    }
+                                }
+                            },
+                            "enabled": true
+                        },
+                        {
+                            "czmObject": {
+                                "xbsjType": "Tileset",
+                                "name": "三维瓦片1",
+                                "url": "../assets/dayanta/tileset.json",
+                                "xbsjFlattenGuid": "93916e9b-82dd-4a56-b15e-27303b08e781",
+                                "xbsjPosition": [
+                                    1.9016974701882112,
+                                    0.5972325152147303,
+                                    425.8641913624607
+                                ],
+                                "xbsjUseOriginTransform": false,
+                                "skipLevelOfDetail": false
+                            },
+                            "ref": 'dayanta'
+                        },
+                        {
+                            "czmObject": {
+                                "name": 'Pin1',
+                                "xbsjType": "Pin",
+                                "position": [1.9017005344200106, 0.5972477505012131, 492.1993682060647]
+                            },
+                            "ref": 'pin1'
+                        },
+                        {
+                            "czmObject": {
+                                "xbsjType": "Model",
+                                "url": "../assets/GroundVehicle/GroundVehicle.glb",
+                                "minimumPixelSize": 128,
+                                "maximumScale": 20000,
+                                "xbsjPosition": [1.9016974701882112, 0.5972325152147303, 425.8641913624607],
+                            },
+                            "ref": "model1",
+                        },
+                        {
+                            "czmObject": {
+                                "xbsjType": "Model",
+                                "url": "../assets/building/ShanTieDaSha_building.glb",
+                                "xbsjPosition": [1.901659188595228, 0.5972536604752615, 425.8641913624607],
+                            },
+                            "ref": "model2",
+                        },
+                        {
+                            "czmObject": {
+                                "xbsjType": "FlattenedPolygonCollection",
+                                "xbsjGuid": "93916e9b-82dd-4a56-b15e-27303b08e781",
+                                "name": "压平多边形组1",
+                                "polygons": [
+                                    {
+                                        "positions": [
+                                            1.9016876637901186,
+                                            0.5972464460694508,
+                                            1.9016907038557367,
+                                            0.5972464930753107,
+                                            1.9016907486783603,
+                                            0.597249267098491,
+                                            1.9016876817437334,
+                                            0.5972490144373428
+                                        ],
+                                        "height": 426, // 高度
+                                    }
+                                ]
+                            },
+                            "ref": "yaping"
+                        },
+                        {
+                        "czmObject": {
+                            "xbsjType": "Viewshed",
+                            "name": "视域分析",
+                            "position": [
+                                1.9016941363233133,
+                                0.5972280994903124,
+                                441.33440879700987
+                            ],
+                            "rotation": [
+                                5.661008560777628,
+                                -0.4002876987466508,
+                                6.281209044159919
+                            ],
+                            "near": 1,
+                            "far": 50
+                        },
+                        "ref": 'viewshed',
+                        "enabled": true
+                    }
+                    ]
+                };
+                var model1 = earth.sceneTree.$refs.model1.czmObject;
+                var dayanta = earth.sceneTree.$refs.dayanta.czmObject;
+                var pin1 = earth.sceneTree.$refs.pin1.czmObject;
+                var model2 = earth.sceneTree.$refs.model2.czmObject;
+                var yaping = earth.sceneTree.$refs.yaping.czmObject;
+                
+                yaping.polygons[0].showHelper = true; // 是否开启线框显示，编辑状态下，不要开启，二者显示有影响
+                yaping.polygons[0].editing = false; // 是否开启编辑状态
+                // 设置初始值
+                pin1.pinBuilder.makiIcon = XE.Obj.Pin.MakiIcon.building;
+                pin1.pinBuilder.size = 48;
+                pin1.pinBuilder.extText = '大雁塔';
+
+                var classificationpolygon = new XE.Obj.ClassificationPolygon(earth);
+                classificationpolygon.name = '大雁塔';
+                // 设置相机位置
+                // earth.camera.position.toString()和earth.camera.toAllJSONStr()这两个方法可获取相机位置
+                earth.camera.position = [1.9016991633909208, 0.5971695799282292, 756.7010439120457];
+                earth.camera.rotation = [0.027900493226680645, -0.6716444402205366, 0.00011144258520534578];
+
+                classificationpolygon.positions = [1.9016948797993434,0.5972434532809038,1.9017065328081069,0.5972433601758564,1.9017065644555835,0.597252909538964,1.9016953329158268,0.5972529949667453];
+                classificationpolygon.height = 511.3415929293872;
+                classificationpolygon.extrudedHeight = 423.67645719543657;
+                classificationpolygon.color = [1,1,0,0]
+
+                classificationpolygon.onclick = pickedObject => {
+                    console.log("classificationpolygon",pickedObject)
+                    if (pickedObject.id.name === '大雁塔') {
+                        classificationpolygon.flyTo();
+                        this.colors.pop()
+                        this.colors.push(0.5)
+                    }
+                }
+                model1.onclick = pickedObject => {
+                    console.log("Model",pickedObject)
+                    this.positionEditing = true; // 开启位置编辑
+                }
+                dayanta.onclick = () => {
+                    console.log('tileset')
+                }
+                pin1.onclick = (e) => {
+                    console.log("Pin",e)
+                    if (e.id.name === 'Pin1') {
+                        classificationpolygon.flyTo();
+                        this.colors.pop()
+                        this.colors.push(0.5)
+                    }
+                }
+                model2.onclick = () => {
+                    console.log('陕铁大厦')
+                }
+                // model1.onmouseover = () => {
+                //     console.log("over")
+                // }
+                // model1.onmouseout = () => {
+                //     console.log('out')
+                // }
+                // setInterval(() => {
+                //     console.log(classificationpolygon)
+                //     //获取单体化节点坐标
+                //     // console.log(classificationpolygon.positions.toString())
+                //     // console.log(classificationpolygon.height.toString())
+                // },3000)
+                
+                //classificationpolygon.color = [1,1,1,0.5];
+                //setInterval(() => {
+                    //获取相机位置 [1.9017001010801222,0.5970922618802473,1397.8793193696622]
+                    //console.log(parseFloat(earth.camera.position[0]).toFixed(5))
+                    //获取相机姿态 [6.283185307179558,-0.7856576244630902,6.283185307179586]
+                    //console.log(earth.camera.rotation.toString())
+                    //获取三维瓦片数据的原始位置 [1.9016974701882112, 0.5972325152147303, 425.8641913624607]
+                    //console.log(dayanta.getOriginPosition())
+                //},1000);
+                //开启位置编辑
+                //dayanta.positionEditing = true
+                //开启旋转编辑 两者只能开一个
+                //dayanta.rotationEditing = true
+
+                // dayanta.flyTo();//飞到当前位置，有过渡动画
+
+                // 1.1.3 数据绑定
+                {
+                    //单体化编辑相关
+                    this._creatingUnbind = XE.MVVM.bind(this, 'creating', classificationpolygon, 'creating');
+                    this._editingUnbind = XE.MVVM.bind(this, 'editing', classificationpolygon, 'editing');
+                    this._showHelperUnbind = XE.MVVM.bind(this, 'showHelper', classificationpolygon, 'showHelper');
+                    this._showUnbind = XE.MVVM.bind(this, 'show', classificationpolygon, 'show');
+                    this._extrudedHeightEditingUnbind = XE.MVVM.bind(this, 'extrudedHeightEditing', classificationpolygon, 'extrudedHeightEditing');
+                    this._extrudedHeightUnbind = XE.MVVM.bind(this, 'extrudedHeight', classificationpolygon, 'extrudedHeight');
+                    this._colorsUnbind = XE.MVVM.bind(this, 'colors', classificationpolygon, 'color');
+                    //小车相关
+                    this._rotationEditingUnbind = XE.MVVM.bind(this, 'rotationEditing', model1, 'rotationEditing');
+                    this._positionEditingUnbind = XE.MVVM.bind(this, 'positionEditing', model1, 'positionEditing');
+                    this._xbsjPositionUnbind = XE.MVVM.bindPosition(this, 'xbsjPosition', model1, 'xbsjPosition');
+                    this._xbsjRotationUnbind = XE.MVVM.bindRotation(this, 'xbsjRotation', model1, 'xbsjRotation');
+
+                    // 设置初始值
+                    earth.terrainEffect.subSurfaceEnabled = false;//是否启用地下模式
+                    earth.terrainEffect.surfaceOpacity = 0.0;//0.0表示完全透明，1.0表示完全不透明，注意地形深度检测(depthTest)关闭以后此属性才起作用！
+                    
+                }
+
+                this._earth = earth;
+                this._model = model1;
+
+                // only for debug
+                window.earth = earth;
+                window.model = model1;
+            },
+            // 1.2 资源销毁
+            beforeDestroy() {
+                // vue程序销毁时，需要清理相关资源
+                this._earth = this._earth && this._earth.destroy();
+                this._model = this._model && this._model.destroy();
+                this._rotationEditingUnbind = this._rotationEditingUnbind && this._rotationEditingUnbind();
+                this._positionEditingUnbind = this._positionEditingUnbind && this._positionEditingUnbind();
+                this._xbsjPositionUnbind = this._xbsjPositionUnbind && this._xbsjPositionUnbind();
+                this._xbsjRotationUnbind = this._xbsjRotationUnbind && this._xbsjRotationUnbind();
+            },
+        }
+        XE.ready().then(() => {
+            var app = new Vue({
+                el: '#vueApp',
+                components: {
+                    EarthComp,
+                }
+            })
+        });
+       
+    </script>
+</body>
+</html>
